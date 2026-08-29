@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Sparse tiles in Philips and Argos levels could be served as corrupt jpeg data when both sparse and populated tiles were read from the same level.
 - `get_tiles()` served empty frames, or raised `IndexError`, for sparse tiles in Philips and Argos levels, where `get_tile()` correctly served a blank tile.
+- Creating a blank tile looped forever on a jpeg whose quantisation table declares a length below the two byte minimum, and raised `struct.error` on a truncated one. Both are now reported as a missing quantisation table.
 
 ## [0.25.0] - 2026-08-17
 

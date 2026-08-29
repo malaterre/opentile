@@ -12,8 +12,10 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+import threading
 from ctypes import c_short, pointer
 from io import BytesIO
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -49,6 +51,15 @@ def filler():
 def buffer():
     with open(test_file_path, "rb") as file:
         yield file.read()
+
+
+SOI = bytes([0xFF, 0xD8])
+MARKER = bytes([0xFF, 0xDB])
+
+
+def dqt_segment(table_index: int, length: int = 67) -> bytes:
+    """A quantization table segment for table_index, with 64 8 bit elements."""
+    return MARKER + length.to_bytes(2, "big") + bytes([table_index << 4]) + bytes(64)
 
 
 @pytest.mark.unittest
@@ -192,3 +203,84 @@ class TestJpegFiller:
             # Assert
             # Compare the modified component with the expected result
             assert np.array_equal(expected_results, coeffs)
+
+
+@pytest.mark.unittest
+class TestFindDqt:
+    @staticmethod
+    def find_dqt(data: bytes, dqt_index: int) -> Optional[int]:
+        """Run the search in a worker thread and fail if it does not terminate. A
+        malformed segment length used to leave the scan looping on one marker."""
+        result: list[Optional[int]] = []
+        thread = threading.Thread(
+            target=lambda: result.append(JpegFiller._find_dqt(data, dqt_index)),
+            daemon=True,
+        )
+        thread.start()
+        thread.join(5.0)
+        assert not thread.is_alive(), "_find_dqt did not terminate"
+        return result[0]
+
+    def test_find_first_table(self):
+        # Arrange
+        data = SOI + dqt_segment(0) + dqt_segment(1)
+
+        # Act
+        offset = self.find_dqt(data, 0)
+
+        # Assert
+        assert offset == len(SOI)
+
+    def test_find_second_table(self):
+        # Arrange
+        data = SOI + dqt_segment(0) + dqt_segment(1)
+
+        # Act
+        offset = self.find_dqt(data, 1)
+
+        # Assert
+        assert offset == len(SOI) + len(dqt_segment(0))
+
+    def test_missing_table_returns_none(self):
+        # Arrange
+        data = SOI + dqt_segment(0)
+
+        # Act
+        offset = self.find_dqt(data, 1)
+
+        # Assert
+        assert offset is None
+
+    @pytest.mark.parametrize("length", [0, 1])
+    def test_segment_length_below_minimum_returns_none(self, length: int):
+        # Arrange
+        # A length field below 2 does not move the scan past the marker. Table 1 is
+        # searched for while the segment declares table 0, so the index does not
+        # match and the scan reaches the advance step.
+        data = SOI + dqt_segment(0, length=length)
+
+        # Act
+        offset = self.find_dqt(data, 1)
+
+        # Assert
+        assert offset is None
+
+    @pytest.mark.parametrize("kept", [0, 1, 2, 3, 4])
+    def test_truncated_segment_returns_none(self, kept: int):
+        # Arrange
+        # Too little room after the marker for the length field and the table id.
+        data = SOI + dqt_segment(0)[:kept]
+
+        # Act
+        offset = self.find_dqt(data, 0)
+
+        # Assert
+        assert offset is None
+
+    def test_truncated_segment_raises_value_error_from_caller(self):
+        # Arrange
+        data = SOI + MARKER
+
+        # Act, Assert
+        with pytest.raises(ValueError, match="Quantisation table"):
+            JpegFiller._get_dc_dqt_element(data, 0)

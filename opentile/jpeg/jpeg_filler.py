@@ -313,23 +313,36 @@ class JpegFiller:
         dc_dqt_coefficient = cls._get_dc_dqt_element(jpeg_data, 0)
         return int(round((luminance * 2047 - 1024) / dc_dqt_coefficient))
 
-    @staticmethod
-    def _find_dqt(jpeg_data: bytes, dqt_index: int) -> Optional[int]:
-        """Return byte offset to quantification table with index dqt_index."""
+    _MIN_SEGMENT_LENGTH = 2
+    """Smallest value a segment length field can hold, as it counts itself."""
+
+    @classmethod
+    def _find_dqt(cls, jpeg_data: bytes, dqt_index: int) -> Optional[int]:
+        """Return byte offset to quantification table with index dqt_index, or None
+        if it is not present, or the data is truncated or malformed."""
         offset = 0
         while offset < len(jpeg_data):
-            dct_table_offset = jpeg_data[offset:].find(b"\xff\xdb")
+            dct_table_offset = jpeg_data.find(b"\xff\xdb", offset)
             if dct_table_offset == -1:
                 break
-            dct_table_offset += offset
-            dct_table_length = unpack(
-                ">H", jpeg_data[dct_table_offset + 2 : dct_table_offset + 4]
-            )[0]
+            length_offset = dct_table_offset + 2
             dct_table_id_offset = dct_table_offset + 4
+            if dct_table_id_offset >= len(jpeg_data):
+                # Truncated: no room for the length field and the table id.
+                break
+            dct_table_length = unpack(
+                ">H", jpeg_data[length_offset:dct_table_id_offset]
+            )[0]
+            if dct_table_length < cls._MIN_SEGMENT_LENGTH:
+                # A shorter length would not move the scan past this marker, so
+                # the search would never terminate.
+                break
             table_index = jpeg_data[dct_table_id_offset] >> 4
             if table_index == dqt_index:
                 return dct_table_offset
-            offset = dct_table_offset + dct_table_length
+            # The length counts itself but not the marker, so the next segment
+            # starts that many bytes after the length field.
+            offset = length_offset + dct_table_length
         return None
 
     @classmethod
