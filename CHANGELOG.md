@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Sparse tiles in Philips and Argos levels could be served as corrupt jpeg data when both sparse and populated tiles were read from the same level.
+- `get_tiles()` served empty frames, or raised `IndexError`, for sparse tiles in Philips and Argos levels, where `get_tile()` correctly served a blank tile.
 
 ## [0.25.0] - 2026-08-17
 

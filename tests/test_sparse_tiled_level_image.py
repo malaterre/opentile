@@ -71,6 +71,8 @@ def level(decoy: Decoy, frame: bytes):
     decoy.when(page.databytecounts).then_return((len(abbreviated), 0))
     file = decoy.mock(cls=OpenTileFile)
     decoy.when(file.read(0, len(abbreviated))).then_return(abbreviated)
+    decoy.when(file.read_multiple([(0, len(abbreviated))])).then_return([abbreviated])
+    decoy.when(file.read_multiple([])).then_return([])
     yield SparseTiledLevelImage(
         page,
         file,
@@ -125,3 +127,27 @@ class TestSparseTiledLevelImage:
 
         # Assert
         assert np.array_equal(jpeg8_decode(tile), jpeg8_decode(frame))
+
+    def test_get_tiles_serves_sparse_and_populated_tiles(
+        self, level: SparseTiledLevelImage, frame: bytes
+    ):
+        # Arrange
+
+        # Act
+        tiles = list(level.get_tiles([(0, 0), (1, 0)]))
+
+        # Assert
+        assert np.array_equal(jpeg8_decode(tiles[0]), jpeg8_decode(frame))
+        assert jpeg8_decode(tiles[1]).mean() == 255.0
+
+    def test_get_tiles_serves_sparse_tile_past_stored_frames(
+        self, level: SparseTiledLevelImage
+    ):
+        # Arrange
+        # Only one frame is stored, so tile (1, 0) has no entry at all in the page.
+
+        # Act
+        tiles = list(level.get_tiles([(1, 0)]))
+
+        # Assert
+        assert jpeg8_decode(tiles[0]).mean() == 255.0

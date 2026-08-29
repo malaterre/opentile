@@ -326,18 +326,28 @@ class NativeTiledTiffImage(BaseTiffImage, metaclass=ABCMeta):
         frame_indices = [
             self._tile_point_to_frame_index(tile_point) for tile_point in tile_points
         ]
-        tiles = self._read_frames(frame_indices)
-        if not self._jpeg_tables:
-            return iter(tiles)
-        return (self._add_jpeg_tables(tile, self._jpeg_tables) for tile in tiles)
+        frames = self._read_frames(frame_indices)
+        return (
+            self._prepare_tile_frame(frame_index, frame)
+            for frame_index, frame in zip(frame_indices, frames)
+        )
 
     def _read_tile_frame(self, frame_index: int) -> bytes:
-        """Read a tile frame, prepending the page's jpeg tables to the abbreviated
-        frame when the page uses them (otherwise the frame is returned as read)."""
-        tile = self._read_frame(frame_index)
+        """Read the tile frame at frame index, ready to serve."""
+        return self._prepare_tile_frame(frame_index, self._read_frame(frame_index))
+
+    def _prepare_tile_frame(self, frame_index: int, frame: bytes) -> bytes:
+        """Make a frame just read from the page ready to serve, by prepending the
+        page's jpeg tables to the abbreviated frame when the page uses them (otherwise
+        the frame is served as read).
+
+        The single seam shared by `get_tile` and `get_tiles`, so that a subclass
+        serving a frame the page does not store (see `SparseTiledLevelImage`) only has
+        to override this to reach both.
+        """
         if not self._jpeg_tables:
-            return tile
-        return self._add_jpeg_tables(tile, self._jpeg_tables)
+            return frame
+        return self._add_jpeg_tables(frame, self._jpeg_tables)
 
     def _add_jpeg_tables(self, tile: bytes, tables: bytes) -> bytes:
         """Prepend the page's jpeg tables (and, for svs, the rgb color space fix) to an
@@ -725,8 +735,8 @@ class SparseTiledLevelImage(NativeTiledTiffImage, LevelTiffImage):
             or self._page.databytecounts[index] == 0
         )
 
-    def _read_tile_frame(self, frame_index: int) -> bytes:
-        """Read a tile frame, serving the blank tile for a sparse frame.
+    def _prepare_tile_frame(self, frame_index: int, frame: bytes) -> bytes:
+        """Serve the blank tile of a sparse frame as read.
 
         The blank tile bypasses `_add_jpeg_tables`: it is already a complete jpeg (
         `_create_blank_tile` splices the page's tables in before filling it, and the
@@ -736,8 +746,21 @@ class SparseTiledLevelImage(NativeTiledTiffImage, LevelTiffImage):
         whichever tile kind happened to be read first, corrupting the other kind.
         """
         if self._is_sparse(frame_index):
-            return self.blank_tile
-        return super()._read_tile_frame(frame_index)
+            return frame
+        return super()._prepare_tile_frame(frame_index, frame)
+
+    def _read_frames(self, indices: Sequence[int]) -> list[bytes]:
+        """Read frames at frame indices from image, reading only those the page
+        actually stores and serving the blank tile for the sparse ones."""
+        stored_frames = iter(
+            super()._read_frames(
+                [index for index in indices if not self._is_sparse(index)]
+            )
+        )
+        return [
+            self.blank_tile if self._is_sparse(index) else next(stored_frames)
+            for index in indices
+        ]
 
     def _read_frame(self, index: int) -> bytes:
         """Read frame at frame index from image. Return blank tile if tile is
