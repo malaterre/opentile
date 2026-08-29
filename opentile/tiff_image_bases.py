@@ -717,6 +717,28 @@ class SparseTiledLevelImage(NativeTiledTiffImage, LevelTiffImage):
         tile = self._jpeg.fill_frame(tile, luminance)
         return tile
 
+    def _is_sparse(self, index: int) -> bool:
+        """Return True if the frame at index is sparse, i.e. not stored in the page:
+        either its byte count is zero or the index is past the stored frames."""
+        return (
+            index >= len(self._page.databytecounts)
+            or self._page.databytecounts[index] == 0
+        )
+
+    def _read_tile_frame(self, frame_index: int) -> bytes:
+        """Read a tile frame, serving the blank tile for a sparse frame.
+
+        The blank tile bypasses `_add_jpeg_tables`: it is already a complete jpeg (
+        `_create_blank_tile` splices the page's tables in before filling it, and the
+        fill re-encodes the frame with its own header layout), so its scan data starts
+        at a different offset than a stored abbreviated tile's. Passing it through
+        would both insert the tables a second time and cut it at an offset cached from
+        whichever tile kind happened to be read first, corrupting the other kind.
+        """
+        if self._is_sparse(frame_index):
+            return self.blank_tile
+        return super()._read_tile_frame(frame_index)
+
     def _read_frame(self, index: int) -> bytes:
         """Read frame at frame index from image. Return blank tile if tile is
         sparse (length of frame is zero or frame index is outside length of
@@ -733,11 +755,7 @@ class SparseTiledLevelImage(NativeTiledTiffImage, LevelTiffImage):
             Frame bytes from frame index or blank tile.
 
         """
-        if (
-            index >= len(self._page.databytecounts)
-            or self._page.databytecounts[index] == 0
-        ):
-            # Sparse tile
+        if self._is_sparse(index):
             return self.blank_tile
         return super()._read_frame(index)
 
