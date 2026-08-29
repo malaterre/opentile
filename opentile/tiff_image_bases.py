@@ -257,9 +257,24 @@ class BaseTiffImage(TiffImage):
     def _check_if_tile_inside_image(self, tile_position: Point) -> bool:
         """Return true if tile position is inside tiled image."""
         return (
-            tile_position.x < self.tiled_size.width
-            and tile_position.y < self.tiled_size.height
+            0 <= tile_position.x < self.tiled_size.width
+            and 0 <= tile_position.y < self.tiled_size.height
         )
+
+    def _validated_tile_point(self, tile_position: tuple[int, int]) -> Point:
+        """Return the tile position as a `Point`, raising if it is outside the tiled
+        image.
+
+        Unchecked, an out of range position silently serves another tile: a position
+        one past the last column maps to the same frame index as the first column of
+        the next row, and a negative position indexes backwards from the last frame.
+        """
+        tile_point = Point.from_tuple(tile_position)
+        if not self._check_if_tile_inside_image(tile_point):
+            raise ValueError(
+                f"Tile {tile_point} is outside tiled size {self.tiled_size}"
+            )
+        return tile_point
 
     @staticmethod
     def _get_value_from_tiff_tags(
@@ -316,12 +331,13 @@ class NativeTiledTiffImage(BaseTiffImage, metaclass=ABCMeta):
         self._jpeg_tables = page.jpegtables
 
     def get_tile(self, tile_position: tuple[int, int]) -> bytes:
-        tile_point = Point.from_tuple(tile_position)
+        tile_point = self._validated_tile_point(tile_position)
         return self._read_tile_frame(self._tile_point_to_frame_index(tile_point))
 
     def get_tiles(self, tile_positions: Sequence[tuple[int, int]]) -> Iterator[bytes]:
         tile_points = [
-            Point.from_tuple(tile_position) for tile_position in tile_positions
+            self._validated_tile_point(tile_position)
+            for tile_position in tile_positions
         ]
         frame_indices = [
             self._tile_point_to_frame_index(tile_point) for tile_point in tile_points
