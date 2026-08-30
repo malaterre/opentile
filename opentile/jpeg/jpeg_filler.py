@@ -312,6 +312,8 @@ class JpegFiller:
         """Map a luminance level (0 - 1) to quantified dc dct coefficient."""
         luminance = min(max(luminance, 0), 1)
         dc_dqt_coefficient = cls._get_dc_dqt_element(jpeg_data, 0)
+        if dc_dqt_coefficient == 0:
+            raise ValueError("Zero dc quantisation element in quantisation table")
         return int(round((luminance * 2047 - 1024) / dc_dqt_coefficient))
 
     _MIN_SEGMENT_LENGTH = 2

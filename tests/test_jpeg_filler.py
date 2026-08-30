@@ -284,3 +284,13 @@ class TestFindDqt:
         # Act, Assert
         with pytest.raises(ValueError, match="Quantisation table"):
             JpegFiller._get_dc_dqt_element(data, 0)
+
+    def test_zero_dc_quantisation_element_raises_value_error(self):
+        # Arrange
+        # Quantisation values are 1-255, so a zero dc element is invalid and
+        # used to divide by zero.
+        data = SOI + dqt_segment(0)
+
+        # Act, Assert
+        with pytest.raises(ValueError, match="Zero dc quantisation element"):
+            JpegFiller._map_luminance_to_dc_dct_coefficient(data, 1.0)
