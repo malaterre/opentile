@@ -17,7 +17,8 @@ from datetime import datetime
 from hashlib import md5
 
 import pytest
-from tifffile import PHOTOMETRIC
+from decoy import Decoy
+from tifffile import PHOTOMETRIC, TiffPage
 
 from opentile.formats import PhilipsTiffTiler
 from opentile.geometry import SizeMm
@@ -178,3 +179,28 @@ class TestPhilipsTiffTiler:
 
         # Assert
         assert base_pixel_spacing == expected_size
+
+
+@pytest.mark.unittest
+class TestPhilipsAssociatedMpp:
+    def test_missing_pixel_size_raises_value_error(self, decoy: Decoy):
+        # Arrange
+        # Without the field `find` returns -1 and the slice used to read from
+        # offset 10 of the description instead of failing.
+        page = decoy.mock(cls=TiffPage)
+        decoy.when(page.description).then_return("Philips label image, no size here")
+
+        # Act, Assert
+        with pytest.raises(ValueError, match="No pixel size"):
+            PhilipsTiffTiler._get_associated_mpp_from_page(page)
+
+    def test_reads_pixel_size(self, decoy: Decoy):
+        # Arrange
+        page = decoy.mock(cls=TiffPage)
+        decoy.when(page.description).then_return('pixelsize=(0.5",0.25")')
+
+        # Act
+        pixel_spacing = PhilipsTiffTiler._get_associated_mpp_from_page(page)
+
+        # Assert
+        assert pixel_spacing == SizeMm(0.5, 0.25) / 1000.0

@@ -18,8 +18,10 @@ from hashlib import md5
 from typing import cast
 
 import pytest
-from tifffile import PHOTOMETRIC
+from decoy import Decoy
+from tifffile import COMPRESSION, PHOTOMETRIC, TiffPage
 
+from opentile.file import OpenTileFile
 from opentile.formats import SvsTiler
 from opentile.formats.svs.svs_image import SvsTiledImage
 from opentile.geometry import Point, Size, SizeMm
@@ -308,3 +310,68 @@ class TestSvsTiler:
 
         # Assert
         assert focal_planes == expected
+
+
+@pytest.mark.unittest
+class TestSvsCorruptEdgeDetection:
+    @staticmethod
+    def level(decoy: Decoy, tiled: Size, zero_indices: set):
+        """An svs level of `tiled` tiles where `zero_indices` have no data."""
+        count = tiled.width * tiled.height
+        page = decoy.mock(cls=TiffPage)
+        decoy.when(page.compression).then_return(COMPRESSION.JPEG)
+        decoy.when(page.photometric).then_return(PHOTOMETRIC.YCBCR)
+        decoy.when(page.imagewidth).then_return(tiled.width)
+        decoy.when(page.imagelength).then_return(tiled.height)
+        decoy.when(page.is_tiled).then_return(True)
+        decoy.when(page.tilewidth).then_return(1)
+        decoy.when(page.tilelength).then_return(1)
+        decoy.when(page.jpegtables).then_return(None)
+        decoy.when(page.description).then_return("")
+        decoy.when(page.dataoffsets).then_return(tuple(range(count)))
+        decoy.when(page.databytecounts).then_return(
+            tuple(0 if index in zero_indices else 1 for index in range(count))
+        )
+        return SvsTiledImage(
+            page,
+            decoy.mock(cls=OpenTileFile),
+            Size(tiled.width, tiled.height),
+            SizeMm(0.25, 0.25),
+            parent=decoy.mock(cls=SvsTiledImage),
+        )
+
+    def test_corrupt_corner_tile_is_detected(self, decoy: Decoy):
+        # Arrange
+        # The corner belongs to both edges but was excluded from each, so a
+        # level whose only zero length frame is the corner looked intact.
+        tiled = Size(4, 3)
+        corner = tiled.width * tiled.height - 1
+
+        # Act
+        level = self.level(decoy, tiled, {corner})
+
+        # Assert
+        assert level.right_edge_corrupt
+        assert level.bottom_edge_corrupt
+
+    def test_intact_level_is_not_corrupt(self, decoy: Decoy):
+        # Arrange
+
+        # Act
+        level = self.level(decoy, Size(4, 3), set())
+
+        # Assert
+        assert not level.right_edge_corrupt
+        assert not level.bottom_edge_corrupt
+
+    def test_single_row_level_edge_is_detected(self, decoy: Decoy):
+        # Arrange
+        # A one tile high level gave an empty right edge region, so nothing was
+        # ever checked.
+        tiled = Size(4, 1)
+
+        # Act
+        level = self.level(decoy, tiled, {tiled.width - 1})
+
+        # Assert
+        assert level.right_edge_corrupt
