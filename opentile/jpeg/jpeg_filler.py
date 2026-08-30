@@ -290,14 +290,15 @@ class JpegFiller:
                 TJFLAG_ACCURATEDCT,
             )
 
-            dest_buf = create_string_buffer(dest_size.value)
-            assert dest_array.value is not None
-            memmove(dest_buf, dest_array.value, dest_size.value)
-
-            self._free(dest_array)
-
-            if transform_status != 0:
-                self._raise_error(handle)
+            try:
+                if transform_status != 0:
+                    self._raise_error(handle)
+                if dest_array.value is None:
+                    raise OSError("Transform reported success but produced no output")
+                dest_buf = create_string_buffer(dest_size.value)
+                memmove(dest_buf, dest_array.value, dest_size.value)
+            finally:
+                self._free(dest_array)
 
             return dest_buf.raw
 
