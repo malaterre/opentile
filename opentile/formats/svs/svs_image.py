@@ -154,12 +154,12 @@ class SvsTiledImage(NativeTiledTiffImage, LevelTiffImage):
         if self._parent is None:
             return False, False
         right_edge = Region(
-            Point(self.tiled_size.width - 1, 0), Size(1, self.tiled_size.height - 1)
+            Point(self.tiled_size.width - 1, 0), Size(1, self.tiled_size.height)
         )
         right_edge_corrupt = self._detect_corrupt_edge(right_edge)
 
         bottom_edge = Region(
-            Point(0, self.tiled_size.height - 1), Size(self.tiled_size.width - 1, 1)
+            Point(0, self.tiled_size.height - 1), Size(self.tiled_size.width, 1)
         )
         bottom_edge_corrupt = self._detect_corrupt_edge(bottom_edge)
 
@@ -197,7 +197,9 @@ class SvsTiledImage(NativeTiledTiffImage, LevelTiffImage):
         decoded_tiles = self._parent.get_decoded_tiles(
             [tile.to_tuple() for tile in scaled_tile_region.iterate_all()]
         )
-        shape = (self.tile_size * scale).to_tuple()
+        scaled_size = self.tile_size * scale
+        # Numpy indexes rows before columns, so the array is (height, width).
+        shape = (scaled_size.height, scaled_size.width)
         if self.samples_per_pixel > 1:
             shape = shape + (self.samples_per_pixel,)
         image_data = np.zeros(shape, dtype=self.np_dtype)
@@ -205,8 +207,8 @@ class SvsTiledImage(NativeTiledTiffImage, LevelTiffImage):
         for y in range(scale):
             for x in range(scale):
                 image_data[
-                    y * self.tile_size.width : (y + 1) * self.tile_size.width,
-                    x * self.tile_size.height : (x + 1) * self.tile_size.height,
+                    y * self.tile_size.height : (y + 1) * self.tile_size.height,
+                    x * self.tile_size.width : (x + 1) * self.tile_size.width,
                 ] = next(decoded_tiles)
 
         # Resize image_data using Pillow
