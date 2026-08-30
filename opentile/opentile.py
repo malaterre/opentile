@@ -84,34 +84,40 @@ class OpenTile:
             Path to turbojpeg (dll or so).
         """
         file = OpenTileFile(filepath, file_options)
-        _, supported_tiler = next(cls._get_supported_tilers(file), (None, None))
-        if supported_tiler is NdpiTiler:
-            return NdpiTiler(file, tile_size, turbo_path)
-        if supported_tiler is SvsTiler:
-            return SvsTiler(file, turbo_path)
-        if supported_tiler is PhilipsTiffTiler:
-            return PhilipsTiffTiler(file, turbo_path)
-        if supported_tiler is HistechTiffTiler:
-            return HistechTiffTiler(file)
-        if supported_tiler is OmeTiffTiler:
-            return OmeTiffTiler(file, tile_size, turbo_path)
-        if supported_tiler is TrestleTiffTiler:
-            return TrestleTiffTiler(file)
-        if supported_tiler is VentanaTiffTiler:
-            return VentanaTiffTiler(file, turbo_path)
-        if supported_tiler is HuronTiffTiler:
-            return HuronTiffTiler(file)
-        if supported_tiler is MikroscanTiffTiler:
-            return MikroscanTiffTiler(file)
-        if supported_tiler is MoticTiffTiler:
-            return MoticTiffTiler(file, turbo_path)
-        if supported_tiler is ArgosTiffTiler:
-            return ArgosTiffTiler(file, turbo_path)
-        if supported_tiler is LeicaScnTiler:
-            return LeicaScnTiler(file)
-        if supported_tiler is QptiffTiler:
-            return QptiffTiler(file, turbo_path)
-        raise NotImplementedError(f"Support for tiff file {filepath} not implemented.")
+        try:
+            _, supported_tiler = next(cls._get_supported_tilers(file), (None, None))
+            if supported_tiler is NdpiTiler:
+                return NdpiTiler(file, tile_size, turbo_path)
+            if supported_tiler is SvsTiler:
+                return SvsTiler(file, turbo_path)
+            if supported_tiler is PhilipsTiffTiler:
+                return PhilipsTiffTiler(file, turbo_path)
+            if supported_tiler is HistechTiffTiler:
+                return HistechTiffTiler(file)
+            if supported_tiler is OmeTiffTiler:
+                return OmeTiffTiler(file, tile_size, turbo_path)
+            if supported_tiler is TrestleTiffTiler:
+                return TrestleTiffTiler(file)
+            if supported_tiler is VentanaTiffTiler:
+                return VentanaTiffTiler(file, turbo_path)
+            if supported_tiler is HuronTiffTiler:
+                return HuronTiffTiler(file)
+            if supported_tiler is MikroscanTiffTiler:
+                return MikroscanTiffTiler(file)
+            if supported_tiler is MoticTiffTiler:
+                return MoticTiffTiler(file, turbo_path)
+            if supported_tiler is ArgosTiffTiler:
+                return ArgosTiffTiler(file, turbo_path)
+            if supported_tiler is LeicaScnTiler:
+                return LeicaScnTiler(file)
+            if supported_tiler is QptiffTiler:
+                return QptiffTiler(file, turbo_path)
+            raise NotImplementedError(
+                f"Support for tiff file {filepath} not implemented."
+            )
+        except Exception:
+            file.close()
+            raise
 
     @classmethod
     def detect_format(
