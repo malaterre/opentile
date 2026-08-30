@@ -124,6 +124,7 @@ class Jpeg:
         "end of image": 0xD9,
         "restart interval": 0xDD,
         "restart mark": 0xD0,
+        "padding": 0x00,
     }
 
     def __init__(self, turbo_path: Optional[Union[str, Path]] = None) -> None:
@@ -143,6 +144,11 @@ class Jpeg:
     }
     _APP14 = 0xEE
     _SOS = 0xDA
+    _SOF_HEADER_BYTES = 6
+    """Bytes of a start-of-frame segment before the per-component triplets:
+    precision(1), height(2), width(2), components(1)."""
+    _SOF_COMPONENT_BYTES = 3
+    """Bytes per start-of-frame component: id(1), sampling(1), quantization table(1)."""
     _RGB_COMPONENT_IDS = (0x52, 0x47, 0x42)  # ascii "R", "G", "B"
 
     @classmethod
@@ -183,6 +189,8 @@ class Jpeg:
             elif marker == cls._SOS:
                 # SOS: Ns(1), then Ns (component, table) pairs, then Ss(1). For a
                 # lossless frame the Ss byte is the predictor selection value.
+                if not segment:
+                    break
                 number_of_components = segment[0]
                 spectral_start = 1 + number_of_components * 2
                 if spectral_start < len(segment):
@@ -194,8 +202,15 @@ class Jpeg:
         process = cls._SOF_PROCESSES.get(sof_marker, JpegProcess.OTHER)
         # SOF: precision(1), height(2), width(2), components(1), then per
         # component id(1), sampling(1, H<<4|V), quantization table(1).
+        if len(sof) < cls._SOF_HEADER_BYTES:
+            raise ValueError("Truncated start-of-frame segment in JPEG frame")
         bit_depth = sof[0]
         components = sof[5]
+        if len(sof) < cls._SOF_HEADER_BYTES + components * cls._SOF_COMPONENT_BYTES:
+            raise ValueError(
+                f"Start-of-frame segment declares {components} components but is too "
+                "short to hold them"
+            )
         ids = [sof[6 + index * 3] for index in range(components)]
         horizontal = [sof[6 + index * 3 + 1] >> 4 for index in range(components)]
         vertical = [sof[6 + index * 3 + 1] & 0x0F for index in range(components)]
@@ -276,7 +291,13 @@ class Jpeg:
         """
         frame = header
         for fragment_index, fragment in enumerate(fragments):
-            if not (fragment[-2] == Jpeg.TAGS["tag marker"] and fragment[-1] != b"0"):
+            # The fragment must end with a marker: a tag marker followed by a
+            # non-zero byte. A zero second byte is a stuffed 0xFF00 in the scan
+            # data rather than a restart marker or end of image.
+            if len(fragment) < 2 or not (
+                fragment[-2] == Jpeg.TAGS["tag marker"]
+                and fragment[-1] != Jpeg.TAGS["padding"]
+            ):
                 raise JpegTagNotFound(
                     "Tag for end of scan or restart marker not found in scan"
                 )
@@ -569,7 +590,7 @@ class Jpeg:
             Position of tag in header and length of payload.
         """
         index = frame.find(tag)
-        if index != -1:
+        if index != -1 and index + 4 <= len(frame):
             (length,) = unpack(">H", frame[index + 2 : index + 4])
             return index, length
 

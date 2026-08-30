@@ -24,11 +24,17 @@ from tifffile import TiffFile, TiffPage
 
 from opentile.geometry import Size
 from opentile.jpeg import Jpeg, JpegProcess
+from opentile.jpeg.jpeg import JpegTagNotFound, find_turbojpeg_path
 
 test_data_dir = os.environ.get("OPENTILE_TESTDIR", "tests/testdata")
 slide_folder = Path(test_data_dir).joinpath("slides")
 ndpi_file_path = slide_folder.joinpath("ndpi/CMU-1/CMU-1.ndpi")
 svs_file_path = slide_folder.joinpath("svs/CMU-1/CMU-1.svs")
+
+
+@pytest.fixture()
+def jpeg():
+    yield Jpeg(find_turbojpeg_path())
 
 
 @pytest.fixture()
@@ -349,3 +355,85 @@ class TestJpegInfo:
         # Act & Assert
         with pytest.raises(ValueError):
             Jpeg.info(frame)
+
+
+@pytest.mark.unittest
+class TestJpegMalformedInput:
+    def test_info_truncated_start_of_frame_raises_value_error(self):
+        # Arrange
+        # The segment declares three components but carries none of them.
+        sof = bytes([8]) + (64).to_bytes(2, "big") + (64).to_bytes(2, "big")
+        sof += bytes([3])
+        frame = bytes([0xFF, 0xD8]) + bytes([0xFF, 0xC0])
+        frame += (len(sof) + 2).to_bytes(2, "big") + sof
+
+        # Act, Assert
+        with pytest.raises(ValueError, match="too short"):
+            Jpeg.info(frame)
+
+    def test_info_start_of_frame_shorter_than_header_raises_value_error(self):
+        # Arrange
+        # A start-of-frame segment holding only two of its six header bytes.
+        frame = (
+            bytes([0xFF, 0xD8])
+            + bytes([0xFF, 0xC0])
+            + (4).to_bytes(2, "big")
+            + bytes(2)
+        )
+
+        # Act, Assert
+        with pytest.raises(ValueError, match="Truncated start-of-frame"):
+            Jpeg.info(frame)
+
+    def test_info_empty_start_of_scan_raises_no_start_of_frame(self):
+        # Arrange
+        # An empty scan segment used to index past its end.
+        frame = bytes([0xFF, 0xD8]) + bytes([0xFF, 0xDA]) + (2).to_bytes(2, "big")
+
+        # Act, Assert
+        with pytest.raises(ValueError, match="No start-of-frame"):
+            Jpeg.info(frame)
+
+    @pytest.mark.parametrize("trailing", [0, 1, 2, 3])
+    def test_find_tag_at_end_of_frame_returns_none(self, trailing: int):
+        # Arrange
+        # A tag with no room after it for the length field used to raise
+        # struct.error out of the unpack.
+        frame = bytes(4) + Jpeg.start_of_scan() + bytes(trailing)
+
+        # Act
+        index, length = Jpeg._find_tag(frame, Jpeg.start_of_scan())
+
+        # Assert
+        if trailing < 2:
+            assert (index, length) == (None, None)
+        else:
+            assert index == 4
+
+    def test_concatenate_fragments_rejects_stuffed_byte(self, jpeg: Jpeg):
+        # Arrange
+        # A fragment ending in a stuffed 0xFF00 is scan data, not a restart
+        # marker. The check compared an int to bytes and so never rejected it.
+        fragments = iter([bytes([0x01, 0x02, 0xFF, 0x00])])
+
+        # Act, Assert
+        with pytest.raises(JpegTagNotFound):
+            jpeg.concatenate_fragments(fragments, bytes([0xFF, 0xD8]))
+
+    def test_concatenate_fragments_rejects_short_fragment(self, jpeg: Jpeg):
+        # Arrange
+        fragments = iter([bytes([0xFF])])
+
+        # Act, Assert
+        with pytest.raises(JpegTagNotFound):
+            jpeg.concatenate_fragments(fragments, bytes([0xFF, 0xD8]))
+
+    def test_concatenate_fragments_accepts_restart_marker(self, jpeg: Jpeg):
+        # Arrange
+        fragments = iter([bytes([0x01, 0x02, 0xFF, 0xD0])])
+
+        # Act
+        frame = jpeg.concatenate_fragments(fragments, bytes([0xFF, 0xD8]))
+
+        # Assert
+        assert frame.endswith(Jpeg.end_of_image())
