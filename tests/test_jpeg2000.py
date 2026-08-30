@@ -147,6 +147,18 @@ class TestJpeg2000Parse:
         # Act & Assert
         assert Jpeg2000.parse(codestream) is None
 
+    def test_zero_components_returns_none(self):
+        # Arrange
+        # A SIZ declaring no components used to read a bit depth from whatever
+        # byte followed the segment.
+        codestream = _codestream(factors=())
+
+        # Act
+        info = Jpeg2000.parse(codestream)
+
+        # Assert
+        assert info is None
+
 
 @pytest.mark.unittest
 class TestJpeg2000Reversible:

@@ -121,8 +121,9 @@ class Jpeg2000:
             codestream[csiz_offset : csiz_offset + cls._SEGMENT_LENGTH_BYTES], "big"
         )
         component_offset = siz_offset + cls._SIZ_COMPONENT_OFFSET
-        # Each component is a (Ssiz, XRsiz, YRsiz) triplet.
-        if len(codestream) < component_offset + components * 3:
+        # Each component is a (Ssiz, XRsiz, YRsiz) triplet. A codestream has at
+        # least one component; zero would read the bit depth past the segment.
+        if components < 1 or len(codestream) < component_offset + components * 3:
             return None
         # Ssiz low 7 bits are the bit depth minus one.
         bit_depth = (codestream[component_offset] & 0x7F) + 1
