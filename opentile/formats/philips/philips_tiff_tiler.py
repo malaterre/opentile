@@ -145,6 +145,8 @@ class PhilipsTiffTiler(Tiler):
         pixel_size_start_string = "pixelsize=("
         pixel_size_start = page.description.find(pixel_size_start_string)
         pixel_size_end = page.description.find(")", pixel_size_start)
+        if pixel_size_start == -1 or pixel_size_end == -1:
+            raise ValueError("No pixel size found in image description")
         pixel_size_string = page.description[
             pixel_size_start + len(pixel_size_start_string) : pixel_size_end
         ]
